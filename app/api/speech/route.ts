@@ -222,33 +222,15 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      if (!response.ok) {
-        const contentType = response.headers.get("Content-Type") || "";
-        let errorMessage = "Failed to generate speech";
+      // Check if we got an audio response
+      const contentType = response.headers.get("Content-Type") || "";
 
-        try {
-          if (contentType.includes("application/json")) {
-            const errorData = await response.json();
-            errorMessage =
-              errorData.detail ||
-              errorData.message ||
-              "Failed to generate speech";
-          } else {
-            const errorText = await response.text();
-            errorMessage = errorText || "Failed to generate speech";
-          }
-        } catch (parseError) {
-          console.error("Error parsing error response:", parseError);
-        }
-
-        // Check if error is related to quota exhaustion
-        if (
-          response.status === 429 ||
-          errorMessage.toLowerCase().includes("quota") ||
-          errorMessage.toLowerCase().includes("limit")
-        ) {
+      // If we got audio/mpeg, process it
+      if (contentType.includes("audio/mpeg")) {
+        const audioBuffer = await response.arrayBuffer();
+        if (!audioBuffer || audioBuffer.byteLength === 0) {
           console.log(
-            "ElevenLabs quota exhausted, falling back to browser TTS"
+            "Received empty audio buffer, falling back to browser TTS"
           );
           return NextResponse.json({
             fallback: true,
@@ -256,30 +238,54 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        return NextResponse.json(
-          { error: errorMessage },
-          { status: response.status }
-        );
+        return new NextResponse(audioBuffer, {
+          headers: {
+            "Content-Type": "audio/mpeg",
+          },
+        });
       }
 
-      const audioBuffer = await response.arrayBuffer();
-      if (!audioBuffer || audioBuffer.byteLength === 0) {
-        console.log("Received empty audio buffer, falling back to browser TTS");
+      // If we get here, it's not an audio response
+      let errorMessage = "Failed to generate speech";
+
+      // Try to parse the error response
+      try {
+        if (contentType.includes("application/json")) {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } else {
+          // Handle text/plain and other responses
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        }
+      } catch (parseError) {
+        console.error("Error parsing error response:", parseError);
+      }
+
+      // Check for quota/limit issues in the error message or status code
+      if (
+        !response.ok &&
+        (response.status === 429 ||
+          errorMessage.toLowerCase().includes("quota") ||
+          errorMessage.toLowerCase().includes("limit") ||
+          !contentType.includes("audio/")) // If we didn't get audio, assume quota issue
+      ) {
+        console.log("ElevenLabs issue detected, falling back to browser TTS");
         return NextResponse.json({
           fallback: true,
           text: optimizedText,
         });
       }
 
-      return new NextResponse(audioBuffer, {
-        headers: {
-          "Content-Type": "audio/mpeg",
-        },
-      });
+      // If we get here, it's a real error
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: response.status || 500 }
+      );
     } catch (error) {
       console.error("Error generating speech:", error);
 
-      // If there's any error with ElevenLabs, fall back to browser TTS
+      // Any error with ElevenLabs should trigger fallback
       return NextResponse.json({
         fallback: true,
         text: optimizedText,
