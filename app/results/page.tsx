@@ -28,7 +28,6 @@ const MEME_SOUNDS = [
     src: "/sounds/emotional-damage.mp3",
     description: "Emotional Damage",
   },
-  { id: "thug-life", src: "/sounds/thug-life.mp3", description: "Thug Life" },
   { id: "wow", src: "/sounds/wow.mp3", description: "Wow" },
   { id: "fatality", src: "/sounds/fatality.mp3", description: "Fatality" },
 ];
@@ -55,7 +54,7 @@ const TRIGGER_PHRASES = [
   },
   {
     pattern: /cool|awesome|impressive|amazing|wow|nice|sick|rad|thug|gangsta/i,
-    sound: "thug-life",
+    sound: "emotional-damage",
   },
   {
     pattern: /surprising|unexpected|shocking|plot twist|twist|wow|whoa|oh my/i,
@@ -150,7 +149,7 @@ const processSoundEffectMarkers = (text: string) => {
         soundFile = "emotional-damage";
         break;
       case "thug-life":
-        soundFile = "thug-life";
+        soundFile = "emotional-damage";
         break;
       case "wow":
         soundFile = "wow";
@@ -207,6 +206,7 @@ export default function RoastResults() {
   const [activeEffect, setActiveEffect] = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [memeSoundsEnabled, setMemeSoundsEnabled] = useState(true);
 
   // Load sound effects
   useEffect(() => {
@@ -261,22 +261,6 @@ export default function RoastResults() {
       });
     };
   }, []);
-
-  // Add a debug function to test sound playback
-  const testSoundEffect = (soundId: string) => {
-    console.log(`Testing sound effect: ${soundId}`);
-    const sound = soundEffectsRef.current[soundId];
-    if (sound) {
-      sound.currentTime = 0;
-      sound.volume = 0.2;
-      sound
-        .play()
-        .then(() => console.log(`Successfully played ${soundId}`))
-        .catch((err) => console.error(`Failed to play ${soundId}:`, err));
-    } else {
-      console.error(`Sound not found: ${soundId}`);
-    }
-  };
 
   useEffect(() => {
     if (roastText) {
@@ -875,17 +859,14 @@ export default function RoastResults() {
 
   // Add a function to play random sounds at intervals
   useEffect(() => {
-    if (isPlaying && soundsLoaded) {
+    if (isPlaying && soundsLoaded && memeSoundsEnabled) {
       console.log("Setting up random sound effects");
       let lastSoundId = "";
-      let soundCount = 0;
-      const maxSounds = 12; // Increased maximum number of sounds to play
-      const minInterval = 5000; // Minimum 5 seconds between sounds
-      const maxInterval = 10000; // Maximum 10 seconds between sounds
+      let soundTimer: NodeJS.Timeout | null = null;
 
       // Function to play a random sound that's different from the last one
       const playRandomSound = () => {
-        if (soundCount >= maxSounds || !isPlaying) return;
+        if (!isPlaying || !memeSoundsEnabled) return;
 
         // Get all sound IDs except the last played one
         const availableSounds = MEME_SOUNDS.filter(
@@ -894,11 +875,7 @@ export default function RoastResults() {
         const randomSoundId =
           availableSounds[Math.floor(Math.random() * availableSounds.length)];
 
-        console.log(
-          `Playing random sound: ${randomSoundId} (${
-            soundCount + 1
-          }/${maxSounds})`
-        );
+        console.log(`Playing random sound: ${randomSoundId}`);
         const sound = soundEffectsRef.current[randomSoundId];
 
         if (sound) {
@@ -919,17 +896,14 @@ export default function RoastResults() {
             .then(() => {
               console.log(`Successfully played random sound: ${randomSoundId}`);
               lastSoundId = randomSoundId;
-              soundCount++;
 
-              // Schedule next sound if we haven't reached the maximum
-              if (soundCount < maxSounds && isPlaying) {
-                const nextInterval =
-                  Math.floor(Math.random() * (maxInterval - minInterval)) +
-                  minInterval;
+              // Schedule next sound if still playing
+              if (isPlaying && memeSoundsEnabled) {
+                const nextInterval = Math.floor(Math.random() * 4000) + 6000; // 6-10 seconds
                 console.log(
                   `Scheduling next sound in ${nextInterval / 1000} seconds`
                 );
-                setTimeout(playRandomSound, nextInterval);
+                soundTimer = setTimeout(playRandomSound, nextInterval);
               }
             })
             .catch((err) => {
@@ -937,8 +911,10 @@ export default function RoastResults() {
                 `Failed to play random sound: ${randomSoundId}`,
                 err
               );
-              // Try again with a different sound after a short delay
-              setTimeout(playRandomSound, 1000);
+              // Try again with a different sound after a short delay if still playing
+              if (isPlaying && memeSoundsEnabled) {
+                soundTimer = setTimeout(playRandomSound, 1000);
+              }
             });
         }
       };
@@ -946,13 +922,15 @@ export default function RoastResults() {
       // Start the first random sound after a short delay
       const initialDelay = Math.floor(Math.random() * 2000) + 1000; // 1-3 seconds initial delay
       console.log(`Starting random sounds in ${initialDelay / 1000} seconds`);
-      const initialTimer = setTimeout(playRandomSound, initialDelay);
+      soundTimer = setTimeout(playRandomSound, initialDelay);
 
       return () => {
-        clearTimeout(initialTimer);
+        if (soundTimer) {
+          clearTimeout(soundTimer);
+        }
       };
     }
-  }, [isPlaying, soundsLoaded]);
+  }, [isPlaying, soundsLoaded, memeSoundsEnabled]);
 
   // Update progress when audio is playing
   useEffect(() => {
@@ -1024,63 +1002,20 @@ export default function RoastResults() {
     return paragraphs;
   };
 
-  // Add a debug section to the UI
-  const renderDebugControls = () => {
-    if (process.env.NODE_ENV !== "production") {
-      return (
-        <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-400 mb-2">
-            Debug Controls
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {MEME_SOUNDS.map((sound) => (
-              <button
-                key={sound.id}
-                onClick={() => testSoundEffect(sound.id)}
-                className="px-2 py-1 bg-gray-800 text-xs rounded hover:bg-gray-700"
-              >
-                Play {sound.description}
-              </button>
-            ))}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Add a function to play a random sound effect on demand
-  const playRandomSoundEffect = () => {
-    if (!soundsLoaded) return;
-
-    const soundIds = MEME_SOUNDS.map((sound) => sound.id);
-    const randomSoundId = soundIds[Math.floor(Math.random() * soundIds.length)];
-
-    console.log(`Playing manual random sound: ${randomSoundId}`);
-    const sound = soundEffectsRef.current[randomSoundId];
-
-    if (sound) {
-      // Play sound effect with lower volume
-      sound.currentTime = 0;
-      sound.volume = 0.2; // Reduced volume for sound effects
-
-      // Show visual effect
-      setActiveEffect(randomSoundId);
-
-      // Hide visual effect after 1.5 seconds
-      setTimeout(() => {
-        setActiveEffect(null);
-      }, 1500);
-
-      sound
-        .play()
-        .then(() => {
-          console.log(`Successfully played manual sound: ${randomSoundId}`);
-        })
-        .catch((err) => {
-          console.error(`Failed to play manual sound: ${randomSoundId}`, err);
-        });
-    }
+  // Render progress bar
+  const renderProgressBar = () => {
+    return (
+      <div className="w-full h-1 bg-gray-700 rounded-full overflow-hidden mt-4">
+        <div
+          className={`h-full ${
+            intensity === "no_mercy"
+              ? "bg-gradient-to-r from-purple-500 to-red-500"
+              : "bg-gradient-to-r from-orange-500 to-red-500"
+          }`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+    );
   };
 
   // Render visual effect overlay
@@ -1114,13 +1049,6 @@ export default function RoastResults() {
           <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
             <div className="absolute inset-0 bg-purple-500 opacity-20 animate-pulse"></div>
             <div className="text-9xl animate-bounce">💔</div>
-          </div>
-        );
-      case "thug-life":
-        return (
-          <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-gray-800 opacity-30 animate-pulse"></div>
-            <div className="text-9xl animate-bounce">😎</div>
           </div>
         );
       case "wow":
@@ -1190,22 +1118,6 @@ export default function RoastResults() {
             }
           }
         `}</style>
-      </div>
-    );
-  };
-
-  // Render progress bar
-  const renderProgressBar = () => {
-    return (
-      <div className="w-full h-1 bg-gray-700 rounded-full overflow-hidden mt-4">
-        <div
-          className={`h-full ${
-            intensity === "no_mercy"
-              ? "bg-gradient-to-r from-purple-500 to-red-500"
-              : "bg-gradient-to-r from-orange-500 to-red-500"
-          }`}
-          style={{ width: `${progress}%` }}
-        ></div>
       </div>
     );
   };
@@ -1320,10 +1232,18 @@ export default function RoastResults() {
                         </button>
 
                         <button
-                          onClick={playRandomSoundEffect}
-                          className="flex items-center space-x-2 px-4 py-2 bg-yellow-700 rounded-lg hover:bg-yellow-600 transition-colors"
+                          onClick={() =>
+                            setMemeSoundsEnabled(!memeSoundsEnabled)
+                          }
+                          className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                            memeSoundsEnabled
+                              ? "bg-yellow-600 hover:bg-yellow-700"
+                              : "bg-gray-700 hover:bg-gray-600"
+                          }`}
                         >
-                          <span>🔊 Add Sound</span>
+                          <span>
+                            🔊 Meme Sounds: {memeSoundsEnabled ? "ON" : "OFF"}
+                          </span>
                         </button>
                       </>
                     )}
@@ -1358,16 +1278,6 @@ export default function RoastResults() {
 
                   {error && (
                     <p className="text-red-400 text-sm mt-4">{error}</p>
-                  )}
-
-                  {renderDebugControls()}
-                  {soundsLoaded && (
-                    <button
-                      onClick={playRandomSoundEffect}
-                      className="mt-4 flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-yellow-600 to-red-600 rounded-lg hover:from-yellow-700 hover:to-red-700 transition-colors"
-                    >
-                      <span>🔊 Add Random Sound Effect</span>
-                    </button>
                   )}
 
                   {renderProgressBar()}
