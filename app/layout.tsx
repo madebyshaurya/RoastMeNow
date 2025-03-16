@@ -5,9 +5,9 @@ import { Inter } from "next/font/google";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "RoastMe AI - Social Media Roasting",
+  title: "RoastMeNow - GitHub Roasting",
   description:
-    "Get roasted by AI based on your social media handles. Choose your pain level!",
+    "Get roasted by AI based on your GitHub profile. Choose your pain level wisely!",
 };
 
 export default function RootLayout({
