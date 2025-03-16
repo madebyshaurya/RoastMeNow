@@ -374,7 +374,7 @@ export default function RoastResults() {
           try {
             // Play sound effect with lower volume
             sound.currentTime = 0;
-            sound.volume = 0.4; // Reduced volume for sound effects
+            sound.volume = 0.2; // Further reduced volume for sound effects
 
             // Show visual effect
             setActiveEffect(soundPoint.sound);
@@ -592,11 +592,13 @@ export default function RoastResults() {
 
   // Use browser's built-in TTS as fallback
   const handleBrowserTTS = (text: string) => {
+    // Clear loading state immediately
+    setIsLoading(false);
+
     if (!window.speechSynthesis) {
       setError(
         "Browser speech synthesis not supported. Please try again later."
       );
-      setIsLoading(false);
       return;
     }
 
@@ -877,9 +879,9 @@ export default function RoastResults() {
       console.log("Setting up random sound effects");
       let lastSoundId = "";
       let soundCount = 0;
-      const maxSounds = 6; // Maximum number of sounds to play
-      const minInterval = 4000; // Minimum 4 seconds between sounds
-      const maxInterval = 8000; // Maximum 8 seconds between sounds
+      const maxSounds = 12; // Increased maximum number of sounds to play
+      const minInterval = 5000; // Minimum 5 seconds between sounds
+      const maxInterval = 10000; // Maximum 10 seconds between sounds
 
       // Function to play a random sound that's different from the last one
       const playRandomSound = () => {
@@ -902,7 +904,15 @@ export default function RoastResults() {
         if (sound) {
           // Play sound effect at lower volume without reducing main audio
           sound.currentTime = 0;
-          sound.volume = 0.4; // Reduced volume for sound effects
+          sound.volume = 0.2; // Reduced volume for sound effects
+
+          // Show visual effect
+          setActiveEffect(randomSoundId);
+
+          // Hide visual effect after 1.5 seconds
+          setTimeout(() => {
+            setActiveEffect(null);
+          }, 1500);
 
           sound
             .play()
@@ -934,7 +944,7 @@ export default function RoastResults() {
       };
 
       // Start the first random sound after a short delay
-      const initialDelay = Math.floor(Math.random() * 3000) + 2000; // 2-5 seconds initial delay
+      const initialDelay = Math.floor(Math.random() * 2000) + 1000; // 1-3 seconds initial delay
       console.log(`Starting random sounds in ${initialDelay / 1000} seconds`);
       const initialTimer = setTimeout(playRandomSound, initialDelay);
 
@@ -1052,7 +1062,7 @@ export default function RoastResults() {
     if (sound) {
       // Play sound effect with lower volume
       sound.currentTime = 0;
-      sound.volume = 0.4; // Reduced volume for sound effects
+      sound.volume = 0.2; // Reduced volume for sound effects
 
       // Show visual effect
       setActiveEffect(randomSoundId);

@@ -14,28 +14,6 @@ import {
 } from "lucide-react";
 import { encodeText } from "@/lib/utils";
 
-interface GitHubRepo {
-  name: string;
-  description: string | null;
-  language: string | null;
-  stargazers_count: number;
-  forks_count: number;
-  updated_at: string;
-}
-
-interface GitHubEvent {
-  type: string;
-  repo: {
-    name: string;
-  };
-  created_at: string;
-  payload: {
-    commits?: { message: string }[];
-    ref_type?: string;
-    action?: string;
-  };
-}
-
 export default function RoastForm() {
   const [handle, setHandle] = useState("");
   const [intensity, setIntensity] = useState("medium");
@@ -85,7 +63,7 @@ export default function RoastForm() {
     const cleanHandle = handle.startsWith("@") ? handle.substring(1) : handle;
 
     try {
-      // Fetch user profile
+      // Just check if the GitHub user exists
       const userRes = await fetch(
         `https://api.github.com/users/${cleanHandle}`
       );
@@ -95,143 +73,23 @@ export default function RoastForm() {
         shakeForm();
         return;
       }
-      const userData = await userRes.json();
 
-      // Fetch user's repositories
-      const reposRes = await fetch(
-        `https://api.github.com/users/${cleanHandle}/repos?per_page=10&sort=updated`
-      );
-      const reposData = await reposRes.json();
-
-      // Fetch user's recent activity
-      const eventsRes = await fetch(
-        `https://api.github.com/users/${cleanHandle}/events?per_page=30`
-      );
-      const eventsData = await eventsRes.json();
-
-      // Get README from user's profile repository
-      const readmeRes = await fetch(
-        `https://api.github.com/repos/${cleanHandle}/${cleanHandle}/readme`
-      );
-      let readmeContent = "";
-      if (readmeRes.ok) {
-        const readmeData = await readmeRes.json();
-        readmeContent = atob(readmeData.content);
-      }
-
-      // Format the data in a clean, AI-friendly way
-      const userInfo = `
-GitHub User Profile Analysis:
-
-Basic Information:
-- Username: ${userData.login}
-- Name: ${userData.name || "Not provided"}
-- Bio: ${userData.bio || "No bio provided"}
-- Location: ${userData.location || "Not provided"}
-- Company: ${userData.company || "Not provided"}
-- Blog/Website: ${userData.blog || "Not provided"}
-- Joined GitHub: ${new Date(userData.created_at).toLocaleDateString()}
-- Public Repositories: ${userData.public_repos}
-- Followers: ${userData.followers}
-- Following: ${userData.following}
-
-Top Repositories (Most Recently Updated):
-${reposData
-  .slice(0, 5)
-  .map(
-    (repo: GitHubRepo) => `
-Repository: ${repo.name}
-  * Description: ${repo.description || "No description"}
-  * Main Language: ${repo.language || "Not specified"}
-  * Stars: ${repo.stargazers_count}
-  * Forks: ${repo.forks_count}
-  * Last Updated: ${new Date(repo.updated_at).toLocaleDateString()}
-`
-  )
-  .join("")}
-
-Recent Activity Summary:
-${eventsData
-  .slice(0, 15)
-  .map((event: GitHubEvent) => {
-    const date = new Date(event.created_at).toLocaleDateString();
-    switch (event.type) {
-      case "PushEvent":
-        const commitMessages =
-          event.payload.commits?.map((c) => c.message).slice(0, 3) || [];
-        const commitInfo = `Pushed ${
-          event.payload.commits?.length || 0
-        } commits to ${event.repo.name} on ${date}`;
-        return commitMessages.length > 0
-          ? `- ${commitInfo}\n  Recent commit: "${commitMessages[0]}"`
-          : `- ${commitInfo}`;
-      case "CreateEvent":
-        return `- Created ${event.payload.ref_type} in ${event.repo.name} on ${date}`;
-      case "IssueEvent":
-        return `- Interacted with issue in ${event.repo.name} on ${date}`;
-      case "PullRequestEvent":
-        return `- ${event.payload.action} pull request in ${event.repo.name} on ${date}`;
-      default:
-        return `- ${event.type} in ${event.repo.name} on ${date}`;
-    }
-  })
-  .join("\n")}
-
-Profile README:
-${readmeContent ? readmeContent.trim() : "No profile README found"}
-
-Additional Stats:
-- Total Stars: ${reposData.reduce(
-        (acc: number, repo: GitHubRepo) => acc + repo.stargazers_count,
-        0
-      )}
-- Total Forks: ${reposData.reduce(
-        (acc: number, repo: GitHubRepo) => acc + repo.forks_count,
-        0
-      )}
-- Average Repository Stars: ${
-        reposData.reduce(
-          (acc: number, repo: GitHubRepo) => acc + repo.stargazers_count,
-          0
-        ) / reposData.length || 0
-      }
-- Most Used Languages: ${Array.from(
-        new Set(
-          reposData.map((repo: GitHubRepo) => repo.language).filter(Boolean)
-        )
-      ).join(", ")}
-- Is Hireable: ${userData.hireable ? "Yes" : "No/Not specified"}
-- Has Profile Picture: ${
-        userData.avatar_url !== userData.gravatar_id ? "Yes" : "No"
-      }
-
-Contribution Level:
-${
-  userData.public_repos > 30
-    ? "Very Active"
-    : userData.public_repos > 10
-    ? "Moderately Active"
-    : "Less Active"
-} GitHub user with 
-${userData.followers} followers and ${
-        userData.public_repos
-      } public repositories.
-`;
-
-      // Send data to OpenAI API
+      // Send username to our API
       const roastResponse = await fetch("/api/roast", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userInfo,
+          username: cleanHandle,
           intensity,
         }),
       });
 
       if (!roastResponse.ok) {
-        throw new Error("Failed to generate roast");
+        const errorData = await roastResponse.json();
+        console.error("Roast API error:", errorData);
+        throw new Error(errorData.error || "Failed to generate roast");
       }
 
       const roastData = await roastResponse.json();
@@ -241,8 +99,12 @@ ${userData.followers} followers and ${
         `/results?roast=${encodeText(roastData.roast)}&intensity=${intensity}`
       );
     } catch (error) {
-      console.error("Error fetching GitHub data:", error);
-      setFormError("Failed to fetch GitHub information. Please try again.");
+      console.error("Error:", error);
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate roast. Please try again."
+      );
       setIsLoading(false);
       shakeForm();
     }
