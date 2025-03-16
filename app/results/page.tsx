@@ -452,11 +452,10 @@ export default function RoastResults() {
         }),
       });
 
-      // First check the content type to determine how to handle the response
       const contentType = response.headers.get("Content-Type") || "";
 
+      // Handle JSON responses (including errors and fallback)
       if (contentType.includes("application/json")) {
-        // This is a JSON response (error or fallback)
         const responseData = await response.json();
 
         if (responseData.fallback) {
@@ -465,111 +464,126 @@ export default function RoastResults() {
           return;
         }
 
-        // If we got here, it's an error
-        throw new Error(
-          responseData.details || responseData.error || "Unknown error"
-        );
-      }
-
-      // If we get here, it's an audio response
-      if (!contentType.includes("audio/")) {
-        // Try to read as JSON first in case it's an error response with wrong content type
-        try {
-          const errorData = await response.clone().json();
-          if (errorData.error) {
-            throw new Error(errorData.details || errorData.error);
-          }
-        } catch {
-          // Not JSON, so just throw the content type error
-          throw new Error(`Unexpected content type: ${contentType}`);
+        if (responseData.error) {
+          throw new Error(responseData.error);
         }
       }
 
-      const audioBlob = await response.blob();
-      if (audioBlob.size === 0) {
-        throw new Error("Received empty audio data");
+      // Handle audio responses
+      if (contentType.includes("audio/")) {
+        const audioBlob = await response.blob();
+        if (audioBlob.size === 0) {
+          throw new Error("Received empty audio data");
+        }
+
+        const url = URL.createObjectURL(audioBlob);
+        setAudioUrl(url);
+
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          audioRef.current.onloadedmetadata = () => {
+            if (audioRef.current) {
+              const audioDuration = audioRef.current.duration * 1000;
+
+              // Calculate word timings based on audio duration
+              const totalWords = words.length;
+              const avgWordDuration = audioDuration / totalWords;
+
+              // Create array of word timings with slight variations
+              const timings: number[] = [];
+              let currentTime = 0;
+
+              words.forEach((word) => {
+                // Words at the end of sentences take longer to say
+                const isEndOfSentence = /[.!?]$/.test(word);
+                const wordLength = word.length;
+
+                // Adjust timing based on word length and position
+                let wordDuration = avgWordDuration;
+
+                // Longer words take longer to say
+                if (wordLength > 8) wordDuration *= 1.5;
+                else if (wordLength > 5) wordDuration *= 1.2;
+
+                // End of sentences have a pause
+                if (isEndOfSentence) wordDuration *= 1.5;
+
+                // New lines have a pause
+                if (word === "\n") wordDuration *= 0.5;
+
+                timings.push(currentTime);
+                currentTime += wordDuration;
+              });
+
+              // Normalize timings to match audio duration
+              const lastTime = timings[timings.length - 1];
+              const normalizedTimings = timings.map(
+                (time) => (time / lastTime) * audioDuration
+              );
+
+              wordTimingsRef.current = normalizedTimings;
+              setIsLoading(false);
+              audioRef.current.play();
+              setIsPlaying(true);
+              startWordHighlighting();
+            }
+          };
+
+          audioRef.current.onended = () => {
+            setIsPlaying(false);
+            setCurrentWordIndex(-1);
+            if (wordIntervalRef.current) {
+              clearInterval(wordIntervalRef.current);
+            }
+            setShowConfetti(true);
+            setTimeout(() => {
+              setShowConfetti(false);
+            }, 5000); // Show confetti for 5 seconds
+          };
+
+          audioRef.current.onerror = (e) => {
+            console.error("Error playing audio:", e);
+            setError("Error playing audio. Please try again.");
+            setIsLoading(false);
+            setIsPlaying(false);
+            setCurrentWordIndex(-1);
+          };
+        }
+        return;
       }
 
-      const url = URL.createObjectURL(audioBlob);
-      setAudioUrl(url);
-
-      if (audioRef.current) {
-        audioRef.current.src = url;
-        audioRef.current.onloadedmetadata = () => {
-          if (audioRef.current) {
-            const audioDuration = audioRef.current.duration * 1000;
-
-            // Calculate word timings based on audio duration
-            const totalWords = words.length;
-            const avgWordDuration = audioDuration / totalWords;
-
-            // Create array of word timings with slight variations
-            const timings: number[] = [];
-            let currentTime = 0;
-
-            words.forEach((word) => {
-              // Words at the end of sentences take longer to say
-              const isEndOfSentence = /[.!?]$/.test(word);
-              const wordLength = word.length;
-
-              // Adjust timing based on word length and position
-              let wordDuration = avgWordDuration;
-
-              // Longer words take longer to say
-              if (wordLength > 8) wordDuration *= 1.5;
-              else if (wordLength > 5) wordDuration *= 1.2;
-
-              // End of sentences have a pause
-              if (isEndOfSentence) wordDuration *= 1.5;
-
-              // New lines have a pause
-              if (word === "\n") wordDuration *= 0.5;
-
-              timings.push(currentTime);
-              currentTime += wordDuration;
-            });
-
-            // Normalize timings to match audio duration
-            const lastTime = timings[timings.length - 1];
-            const normalizedTimings = timings.map(
-              (time) => (time / lastTime) * audioDuration
-            );
-
-            wordTimingsRef.current = normalizedTimings;
-            setIsLoading(false);
-            audioRef.current.play();
-            setIsPlaying(true);
-            startWordHighlighting();
-          }
-        };
-
-        audioRef.current.onended = () => {
-          setIsPlaying(false);
-          setCurrentWordIndex(-1);
-          if (wordIntervalRef.current) {
-            clearInterval(wordIntervalRef.current);
-          }
-          setShowConfetti(true);
-          setTimeout(() => {
-            setShowConfetti(false);
-          }, 5000); // Show confetti for 5 seconds
-        };
-
-        audioRef.current.onerror = (e) => {
-          console.error("Error playing audio:", e);
-          setError("Error playing audio. Please try again.");
-          setIsLoading(false);
-          setIsPlaying(false);
-          setCurrentWordIndex(-1);
-        };
+      // If we get here, try to handle the response as text
+      try {
+        const textResponse = await response.text();
+        if (
+          textResponse.toLowerCase().includes("quota") ||
+          textResponse.toLowerCase().includes("limit")
+        ) {
+          console.log("Quota error detected in text response, using fallback");
+          handleBrowserTTS(text);
+          return;
+        }
+        throw new Error(`Unexpected response: ${textResponse}`);
+      } catch (textError) {
+        console.error("Error handling text response:", textError);
+        throw new Error(`Unexpected content type: ${contentType}`);
       }
     } catch (err) {
       console.error("Error generating speech:", err);
-      setError(
-        `Failed to generate speech: ${
-          err instanceof Error ? err.message : "Please try again."
-        }`
-      );
+      const errorMessage =
+        err instanceof Error ? err.message : "Please try again.";
+
+      // Check if the error suggests quota issues
+      if (
+        errorMessage.toLowerCase().includes("quota") ||
+        errorMessage.toLowerCase().includes("limit")
+      ) {
+        console.log("Quota error detected, using fallback");
+        handleBrowserTTS(text);
+        return;
+      }
+
+      setError(`Failed to generate speech: ${errorMessage}`);
       setIsLoading(false);
     }
   };

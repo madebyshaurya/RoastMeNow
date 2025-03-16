@@ -223,14 +223,29 @@ export async function POST(request: NextRequest) {
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("ElevenLabs API error:", errorText);
+        const contentType = response.headers.get("Content-Type") || "";
+        let errorMessage = "Failed to generate speech";
+
+        try {
+          if (contentType.includes("application/json")) {
+            const errorData = await response.json();
+            errorMessage =
+              errorData.detail ||
+              errorData.message ||
+              "Failed to generate speech";
+          } else {
+            const errorText = await response.text();
+            errorMessage = errorText || "Failed to generate speech";
+          }
+        } catch (parseError) {
+          console.error("Error parsing error response:", parseError);
+        }
 
         // Check if error is related to quota exhaustion
         if (
-          errorText.includes("quota") ||
-          errorText.includes("limit") ||
-          response.status === 429
+          response.status === 429 ||
+          errorMessage.toLowerCase().includes("quota") ||
+          errorMessage.toLowerCase().includes("limit")
         ) {
           console.log(
             "ElevenLabs quota exhausted, falling back to browser TTS"
@@ -242,12 +257,20 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json(
-          { error: "Failed to generate speech" },
-          { status: 500 }
+          { error: errorMessage },
+          { status: response.status }
         );
       }
 
       const audioBuffer = await response.arrayBuffer();
+      if (!audioBuffer || audioBuffer.byteLength === 0) {
+        console.log("Received empty audio buffer, falling back to browser TTS");
+        return NextResponse.json({
+          fallback: true,
+          text: optimizedText,
+        });
+      }
+
       return new NextResponse(audioBuffer, {
         headers: {
           "Content-Type": "audio/mpeg",
@@ -265,7 +288,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error in speech generation:", error);
     return NextResponse.json(
-      { error: "Failed to generate speech" },
+      { error: "Failed to process request" },
       { status: 500 }
     );
   }
