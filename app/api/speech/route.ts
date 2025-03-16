@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Function to optimize text for ElevenLabs to reduce token usage
 function optimizeTextForSpeech(text: string): string {
+  // Remove any sound effect markers that might still be present
+  let optimized = text.replace(
+    /\[(AIRHORN|OOF|BRUH|EMOTIONAL-DAMAGE|THUG-LIFE|WOW|FATALITY)\]/gi,
+    ""
+  );
+
   // Remove any markdown formatting that might be present
-  let optimized = text.replace(/\*\*(.*?)\*\*/g, "$1"); // Remove bold
+  optimized = optimized.replace(/\*\*(.*?)\*\*/g, "$1"); // Remove bold
   optimized = optimized.replace(/\*(.*?)\*/g, "$1"); // Remove italic
 
   // Remove code blocks (without using 's' flag)
@@ -26,16 +32,31 @@ function optimizeTextForSpeech(text: string): string {
     /as I was looking through/gi,
     /after reviewing your profile/gi,
     /after taking a look at your GitHub/gi,
+    /looking at your repositories/gi,
+    /I noticed that/gi,
+    /I see that/gi,
+    /I observed that/gi,
+    /it appears that/gi,
+    /it seems like/gi,
+    /from what I can tell/gi,
+    /based on your profile/gi,
+    /judging by your activity/gi,
+    /according to your GitHub/gi,
   ];
 
   fillerPhrases.forEach((phrase) => {
     optimized = optimized.replace(phrase, "");
   });
 
-  // Limit to 300 words max to save tokens (reduced from 400)
+  // Remove redundant punctuation
+  optimized = optimized.replace(/\.{2,}/g, "."); // Replace multiple periods with single
+  optimized = optimized.replace(/\s+\./g, "."); // Remove spaces before periods
+  optimized = optimized.replace(/\s+,/g, ","); // Remove spaces before commas
+
+  // Limit to 250 words max to save tokens (reduced from 300)
   const words = optimized.split(/\s+/);
-  if (words.length > 300) {
-    optimized = words.slice(0, 300).join(" ") + "...";
+  if (words.length > 250) {
+    optimized = words.slice(0, 250).join(" ") + "...";
   }
 
   return optimized;
@@ -72,7 +93,7 @@ export async function POST(request: NextRequest) {
     // Request body with adjusted settings
     const body = JSON.stringify({
       text: optimizedText,
-      model_id: "eleven_monolingual_v1", // Use more efficient model to save tokens
+      model_id: "eleven_turbo_v2", // Use most efficient model to save tokens
       voice_settings: {
         stability,
         similarity_boost: similarity,
@@ -82,39 +103,93 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Make request to ElevenLabs API
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "xi-api-key": process.env.ELEVENLABS_API_KEY || "",
-      },
-      body,
-    });
+    try {
+      // Make request to ElevenLabs API
+      console.log("Sending request to ElevenLabs API...");
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": process.env.ELEVENLABS_API_KEY || "",
+        },
+        body,
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error("ElevenLabs API error:", errorData);
+      console.log(`ElevenLabs API response status: ${response.status}`);
+
+      // Check if response is ok before trying to read the body
+      if (!response.ok) {
+        // Clone the response before reading it as JSON to avoid "body stream already read" error
+        const errorResponse = response.clone();
+        let errorData;
+
+        try {
+          errorData = await errorResponse.json();
+          console.error("ElevenLabs API error:", JSON.stringify(errorData));
+        } catch (e) {
+          console.error("Failed to parse error response:", e);
+          errorData = { detail: `HTTP error ${response.status}` };
+        }
+
+        // Check if error is related to quota
+        if (
+          errorData.detail?.status === "quota_exceeded" ||
+          errorData.detail?.includes?.("quota") ||
+          errorData.detail?.includes?.("limit") ||
+          response.status === 429
+        ) {
+          console.log("ElevenLabs quota exceeded, falling back to browser TTS");
+          return NextResponse.json(
+            {
+              error: "ElevenLabs quota exceeded",
+              fallback: true,
+              text: optimizedText,
+            },
+            { status: 200 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            error: "Failed to generate speech",
+            details: errorData.detail || "Unknown error",
+          },
+          { status: response.status }
+        );
+      }
+
+      // Get audio data - only read the body if response is ok
+      console.log("Reading audio data from ElevenLabs response...");
+      const audioData = await response.arrayBuffer();
+      console.log(`Received audio data: ${audioData.byteLength} bytes`);
+
+      // Return audio as response
+      return new NextResponse(audioData, {
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Content-Length": audioData.byteLength.toString(),
+        },
+      });
+    } catch (error) {
+      console.error("Error with ElevenLabs API:", error);
+
+      // Fallback to browser TTS
       return NextResponse.json(
-        { error: "Failed to generate speech" },
-        { status: response.status }
+        {
+          error: "ElevenLabs API error",
+          fallback: true,
+          text: optimizedText,
+        },
+        { status: 200 }
       );
     }
-
-    // Get audio data
-    const audioData = await response.arrayBuffer();
-
-    // Return audio as response
-    return new NextResponse(audioData, {
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Content-Length": audioData.byteLength.toString(),
-      },
-    });
   } catch (error) {
     console.error("Error generating speech:", error);
     return NextResponse.json(
-      { error: "Failed to generate speech" },
+      {
+        error: "Failed to generate speech",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     );
   }

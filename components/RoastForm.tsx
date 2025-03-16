@@ -140,7 +140,7 @@ ${reposData
   .slice(0, 5)
   .map(
     (repo: GitHubRepo) => `
-- ${repo.name}:
+Repository: ${repo.name}
   * Description: ${repo.description || "No description"}
   * Main Language: ${repo.language || "Not specified"}
   * Stars: ${repo.stargazers_count}
@@ -152,14 +152,19 @@ ${reposData
 
 Recent Activity Summary:
 ${eventsData
-  .slice(0, 10)
+  .slice(0, 15)
   .map((event: GitHubEvent) => {
     const date = new Date(event.created_at).toLocaleDateString();
     switch (event.type) {
       case "PushEvent":
-        return `- Pushed ${event.payload.commits?.length || 0} commits to ${
-          event.repo.name
-        } on ${date}`;
+        const commitMessages =
+          event.payload.commits?.map((c) => c.message).slice(0, 3) || [];
+        const commitInfo = `Pushed ${
+          event.payload.commits?.length || 0
+        } commits to ${event.repo.name} on ${date}`;
+        return commitMessages.length > 0
+          ? `- ${commitInfo}\n  Recent commit: "${commitMessages[0]}"`
+          : `- ${commitInfo}`;
       case "CreateEvent":
         return `- Created ${event.payload.ref_type} in ${event.repo.name} on ${date}`;
       case "IssueEvent":
@@ -176,6 +181,14 @@ Profile README:
 ${readmeContent ? readmeContent.trim() : "No profile README found"}
 
 Additional Stats:
+- Total Stars: ${reposData.reduce(
+        (acc: number, repo: GitHubRepo) => acc + repo.stargazers_count,
+        0
+      )}
+- Total Forks: ${reposData.reduce(
+        (acc: number, repo: GitHubRepo) => acc + repo.forks_count,
+        0
+      )}
 - Average Repository Stars: ${
         reposData.reduce(
           (acc: number, repo: GitHubRepo) => acc + repo.stargazers_count,
