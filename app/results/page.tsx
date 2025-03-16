@@ -454,6 +454,13 @@ export default function RoastResults() {
 
       const contentType = response.headers.get("Content-Type") || "";
 
+      // For text/plain responses, immediately use fallback
+      if (contentType.includes("text/plain")) {
+        console.log("Got text/plain response, using browser TTS fallback");
+        handleBrowserTTS(text);
+        return;
+      }
+
       // Handle JSON responses (including errors and fallback)
       if (contentType.includes("application/json")) {
         const responseData = await response.json();
@@ -552,33 +559,21 @@ export default function RoastResults() {
         return;
       }
 
-      // If we get here, try to handle the response as text
-      try {
-        const textResponse = await response.text();
-        if (
-          textResponse.toLowerCase().includes("quota") ||
-          textResponse.toLowerCase().includes("limit")
-        ) {
-          console.log("Quota error detected in text response, using fallback");
-          handleBrowserTTS(text);
-          return;
-        }
-        throw new Error(`Unexpected response: ${textResponse}`);
-      } catch (textError) {
-        console.error("Error handling text response:", textError);
-        throw new Error(`Unexpected content type: ${contentType}`);
-      }
+      // If we get here, use fallback for any other content type
+      console.log(`Unexpected content type: ${contentType}, using fallback`);
+      handleBrowserTTS(text);
     } catch (err) {
       console.error("Error generating speech:", err);
       const errorMessage =
         err instanceof Error ? err.message : "Please try again.";
 
-      // Check if the error suggests quota issues
+      // Use fallback for any quota or limit errors
       if (
         errorMessage.toLowerCase().includes("quota") ||
-        errorMessage.toLowerCase().includes("limit")
+        errorMessage.toLowerCase().includes("limit") ||
+        errorMessage.toLowerCase().includes("unexpected content type")
       ) {
-        console.log("Quota error detected, using fallback");
+        console.log("Error detected, using fallback");
         handleBrowserTTS(text);
         return;
       }

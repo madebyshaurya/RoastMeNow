@@ -225,63 +225,39 @@ export async function POST(request: NextRequest) {
       // Check if we got an audio response
       const contentType = response.headers.get("Content-Type") || "";
 
-      // If we got audio/mpeg, process it
-      if (contentType.includes("audio/mpeg")) {
-        const audioBuffer = await response.arrayBuffer();
-        if (!audioBuffer || audioBuffer.byteLength === 0) {
-          console.log(
-            "Received empty audio buffer, falling back to browser TTS"
-          );
-          return NextResponse.json({
-            fallback: true,
-            text: optimizedText,
-          });
-        }
+      // Log the content type and status for debugging
+      console.log(
+        `ElevenLabs API response: Status=${response.status}, Content-Type=${contentType}`
+      );
 
-        return new NextResponse(audioBuffer, {
-          headers: {
-            "Content-Type": "audio/mpeg",
-          },
-        });
-      }
-
-      // If we get here, it's not an audio response
-      let errorMessage = "Failed to generate speech";
-
-      // Try to parse the error response
-      try {
-        if (contentType.includes("application/json")) {
-          const errorData = await response.json();
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-        } else {
-          // Handle text/plain and other responses
-          const errorText = await response.text();
-          errorMessage = errorText || errorMessage;
-        }
-      } catch (parseError) {
-        console.error("Error parsing error response:", parseError);
-      }
-
-      // Check for quota/limit issues in the error message or status code
-      if (
-        !response.ok &&
-        (response.status === 429 ||
-          errorMessage.toLowerCase().includes("quota") ||
-          errorMessage.toLowerCase().includes("limit") ||
-          !contentType.includes("audio/")) // If we didn't get audio, assume quota issue
-      ) {
-        console.log("ElevenLabs issue detected, falling back to browser TTS");
+      // Always use fallback in production environment if content type is not audio/mpeg
+      if (!contentType.includes("audio/mpeg")) {
+        console.log("Non-audio response received, using fallback");
         return NextResponse.json({
           fallback: true,
           text: optimizedText,
         });
       }
 
-      // If we get here, it's a real error
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: response.status || 500 }
-      );
+      // If we got audio/mpeg, process it
+      const audioBuffer = await response.arrayBuffer();
+      if (!audioBuffer || audioBuffer.byteLength === 0) {
+        console.log("Received empty audio buffer, falling back to browser TTS");
+        return NextResponse.json({
+          fallback: true,
+          text: optimizedText,
+        });
+      }
+
+      // Set cache control headers to prevent caching issues
+      return new NextResponse(audioBuffer, {
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Cache-Control": "no-store, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      });
     } catch (error) {
       console.error("Error generating speech:", error);
 
